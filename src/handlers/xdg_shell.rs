@@ -36,6 +36,13 @@ fn is_maximized(surface: &ToplevelSurface) -> bool {
         .contains(xdg_toplevel::State::Maximized)
 }
 
+fn get_window_for_surface(surface: &ToplevelSurface, space: &Space<Window>) -> Option<Window> {
+    space
+        .elements()
+        .find(|w| w.toplevel().wl_surface() == surface.wl_surface())
+        .cloned()
+}
+
 impl XdgShellHandler for Smallvil {
     fn xdg_shell_state(&mut self) -> &mut XdgShellState {
         &mut self.xdg_shell_state
@@ -78,12 +85,7 @@ impl XdgShellHandler for Smallvil {
         if let Some(start_data) = check_grab(&seat, wl_surface, serial) {
             let pointer = seat.get_pointer().unwrap();
 
-            let window = self
-                .space
-                .elements()
-                .find(|w| w.toplevel().wl_surface() == wl_surface)
-                .unwrap()
-                .clone();
+            let window = get_window_for_surface(&surface, &self.space).unwrap();
 
             let mut initial_window_location = self.space.element_location(&window).unwrap();
 
@@ -137,12 +139,7 @@ impl XdgShellHandler for Smallvil {
         if let Some(start_data) = check_grab(&seat, wl_surface, serial) {
             let pointer = seat.get_pointer().unwrap();
 
-            let window = self
-                .space
-                .elements()
-                .find(|w| w.toplevel().wl_surface() == wl_surface)
-                .unwrap()
-                .clone();
+            let window = get_window_for_surface(&surface, &self.space).unwrap();
             let initial_window_location = self.space.element_location(&window).unwrap();
             let initial_window_size = window.geometry().size;
 
@@ -169,13 +166,8 @@ impl XdgShellHandler for Smallvil {
             .capabilities
             .contains(xdg_toplevel::WmCapabilities::Maximize)
         {
-            let wl_surface = surface.wl_surface();
-            let window = self
-                .space
-                .elements()
-                .find(|w| w.toplevel().wl_surface() == wl_surface)
-                .unwrap()
-                .clone();
+            let window = get_window_for_surface(&surface, &self.space).unwrap();
+
             let window_outputs = self.space.outputs_for_element(&window);
             let output = window_outputs
                 .first()
@@ -205,13 +197,7 @@ impl XdgShellHandler for Smallvil {
     }
 
     fn minimize_request(&mut self, surface: ToplevelSurface) {
-        let wl_surface = surface.wl_surface();
-        let window = self
-            .space
-            .elements()
-            .find(|w| w.toplevel().wl_surface() == wl_surface)
-            .unwrap()
-            .clone();
+        let window = get_window_for_surface(&surface, &self.space).unwrap();
         self.space.unmap_elem(&window); // TODO: this is unsafe as we have no way to remap it currently
     }
 }
