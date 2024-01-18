@@ -1,12 +1,14 @@
 use smithay::{
     delegate_xdg_shell,
-    desktop::{find_popup_root_surface, get_popup_toplevel_coords, PopupKind, PopupManager, Space, Window},
+    desktop::{
+        find_popup_root_surface, get_popup_toplevel_coords, PopupKind, PopupManager, Space, Window,
+    },
     input::{
         pointer::{Focus, GrabStartData as PointerGrabStartData},
         Seat,
     },
     reexports::{
-        wayland_protocols::xdg::shell::server::xdg_toplevel,
+        wayland_protocols::xdg::shell::server::xdg_toplevel::{self},
         wayland_server::{
             protocol::{wl_seat, wl_surface::WlSurface},
             Resource,
@@ -27,6 +29,13 @@ use crate::{
     Smallvil,
 };
 
+fn is_maximized(surface: &ToplevelSurface) -> bool {
+    surface
+        .current_state()
+        .states
+        .contains(xdg_toplevel::State::Maximized)
+}
+
 impl XdgShellHandler for Smallvil {
     fn xdg_shell_state(&mut self) -> &mut XdgShellState {
         &mut self.xdg_shell_state
@@ -42,7 +51,12 @@ impl XdgShellHandler for Smallvil {
         let _ = self.popups.track_popup(PopupKind::Xdg(surface));
     }
 
-    fn reposition_request(&mut self, surface: PopupSurface, positioner: PositionerState, token: u32) {
+    fn reposition_request(
+        &mut self,
+        surface: PopupSurface,
+        positioner: PositionerState,
+        token: u32,
+    ) {
         surface.with_pending_state(|state| {
             let geometry = positioner.get_geometry();
             state.geometry = geometry;
@@ -52,7 +66,15 @@ impl XdgShellHandler for Smallvil {
         surface.send_repositioned(token);
     }
 
+    fn grab(&mut self, _surface: PopupSurface, _seat: wl_seat::WlSeat, _serial: Serial) {
+        // TODO popup grabs
+    }
+
     fn move_request(&mut self, surface: ToplevelSurface, seat: wl_seat::WlSeat, serial: Serial) {
+        if is_maximized(&surface) {
+            return;
+        }
+
         let seat = Seat::from_resource(&seat).unwrap();
 
         let wl_surface = surface.wl_surface();
@@ -85,6 +107,10 @@ impl XdgShellHandler for Smallvil {
         serial: Serial,
         edges: xdg_toplevel::ResizeEdge,
     ) {
+        if is_maximized(&surface) {
+            return;
+        }
+
         let seat = Seat::from_resource(&seat).unwrap();
 
         let wl_surface = surface.wl_surface();
@@ -118,8 +144,56 @@ impl XdgShellHandler for Smallvil {
         }
     }
 
-    fn grab(&mut self, _surface: PopupSurface, _seat: wl_seat::WlSeat, _serial: Serial) {
-        // TODO popup grabs
+    fn maximize_request(&mut self, surface: ToplevelSurface) {
+        if surface
+            .current_state()
+            .capabilities
+            .contains(xdg_toplevel::WmCapabilities::Maximize)
+        {
+            let wl_surface = surface.wl_surface();
+            let window = self
+                .space
+                .elements()
+                .find(|w| w.toplevel().wl_surface() == wl_surface)
+                .unwrap()
+                .clone();
+            let window_outputs = self.space.outputs_for_element(&window);
+            let output = window_outputs
+                .first()
+                .or_else(|| self.space.outputs().next())
+                .expect("No outputs?");
+
+            let geometry = self.space.output_geometry(output).unwrap();
+
+            surface.with_pending_state(|state| {
+                state.states.set(xdg_toplevel::State::Maximized);
+                state.size = Some(geometry.size);
+            });
+            self.space.map_element(window, geometry.loc, true);
+        }
+
+        surface.send_configure();
+    }
+
+    fn unmaximize_request(&mut self, surface: ToplevelSurface) {
+        if is_maximized(&surface) {
+            surface.with_pending_state(|state| {
+                state.states.unset(xdg_toplevel::State::Maximized);
+                state.size = None; // TODO: we should revert to the previous size and locationb
+            });
+            surface.send_pending_configure();
+        }
+    }
+
+    fn minimize_request(&mut self, surface: ToplevelSurface) {
+        let wl_surface = surface.wl_surface();
+        let window = self
+            .space
+            .elements()
+            .find(|w| w.toplevel().wl_surface() == wl_surface)
+            .unwrap()
+            .clone();
+        self.space.unmap_elem(&window); // TODO: this is unsafe as we have no way to remap it currently
     }
 }
 
@@ -202,7 +276,11 @@ impl Smallvil {
         let Ok(root) = find_popup_root_surface(&PopupKind::Xdg(popup.clone())) else {
             return;
         };
-        let Some(window) = self.space.elements().find(|w| w.toplevel().wl_surface() == &root) else {
+        let Some(window) = self
+            .space
+            .elements()
+            .find(|w| w.toplevel().wl_surface() == &root)
+        else {
             return;
         };
 
