@@ -71,10 +71,6 @@ impl XdgShellHandler for Smallvil {
     }
 
     fn move_request(&mut self, surface: ToplevelSurface, seat: wl_seat::WlSeat, serial: Serial) {
-        if is_maximized(&surface) {
-            return;
-        }
-
         let seat = Seat::from_resource(&seat).unwrap();
 
         let wl_surface = surface.wl_surface();
@@ -88,7 +84,30 @@ impl XdgShellHandler for Smallvil {
                 .find(|w| w.toplevel().wl_surface() == wl_surface)
                 .unwrap()
                 .clone();
-            let initial_window_location = self.space.element_location(&window).unwrap();
+
+            let mut initial_window_location = self.space.element_location(&window).unwrap();
+
+            if is_maximized(&surface) {
+                let target_size = (1200, 200).into(); // TODO: should be the previous size of the window
+
+                surface.with_pending_state(|state| {
+                    state.states.unset(xdg_toplevel::State::Maximized);
+                    state.size = Some(target_size);
+                });
+
+                surface.send_configure();
+
+                let win_geometry = self.space.element_geometry(&window).unwrap();
+                let pointer_pos = pointer.current_location();
+                let ratio =
+                    (pointer_pos.x - win_geometry.loc.x as f64) / (win_geometry.size.w as f64);
+
+                initial_window_location = (
+                    (pointer_pos.x - ratio * target_size.w as f64) as i32,
+                    (pointer_pos.y as i32),
+                )
+                    .into();
+            }
 
             let grab = MoveSurfaceGrab {
                 start_data,
