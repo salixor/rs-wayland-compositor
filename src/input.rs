@@ -1,7 +1,7 @@
 use smithay::{
     backend::input::{
         AbsolutePositionEvent, Axis, AxisSource, ButtonState, Event, InputBackend, InputEvent,
-        KeyboardKeyEvent, PointerAxisEvent, PointerButtonEvent,
+        KeyState, KeyboardKeyEvent, PointerAxisEvent, PointerButtonEvent,
     },
     input::{
         keyboard::FilterResult,
@@ -12,6 +12,8 @@ use smithay::{
 };
 
 use crate::state::Smallvil;
+
+const PROGRAM_TO_SPAWN: &str = "konsole";
 
 impl Smallvil {
     pub fn process_input_event<I: InputBackend>(&mut self, event: InputEvent<I>) {
@@ -26,7 +28,17 @@ impl Smallvil {
                     event.state(),
                     serial,
                     time,
-                    |_, _, _| FilterResult::Forward,
+                    |_, _, handle| {
+                        let state = event.state();
+                        let keysym = handle.modified_sym();
+
+                        if state == KeyState::Pressed && keysym.is_function_key() {
+                            std::process::Command::new(PROGRAM_TO_SPAWN).spawn().ok();
+                            return FilterResult::Intercept(());
+                        }
+
+                        FilterResult::Forward
+                    },
                 );
             }
             InputEvent::PointerMotion { .. } => {}
