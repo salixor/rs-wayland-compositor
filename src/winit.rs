@@ -3,16 +3,41 @@ use std::time::Duration;
 use smithay::{
     backend::{
         renderer::{
-            damage::OutputDamageTracker, element::surface::WaylandSurfaceRenderElement, gles::GlesRenderer,
+            damage::OutputDamageTracker, element::surface::WaylandSurfaceRenderElement,
+            gles::GlesRenderer,
         },
         winit::{self, WinitEvent},
     },
+    desktop::{Space, Window},
     output::{Mode, Output, PhysicalProperties, Subpixel},
-    reexports::calloop::EventLoop,
+    reexports::{calloop::EventLoop, wayland_protocols::xdg::shell::server::xdg_toplevel},
     utils::{Rectangle, Transform},
 };
 
 use crate::{CalloopData, Smallvil};
+
+fn fix_positions(space: &Space<Window>) {
+    let maximized_windows = space.elements().filter(|element| {
+        element
+            .toplevel()
+            .current_state()
+            .states
+            .contains(xdg_toplevel::State::Maximized)
+    });
+    maximized_windows.for_each(|w| {
+        let surface = w.toplevel();
+        let outputs = space.outputs_for_element(w);
+        let output = outputs
+            .first()
+            .or_else(|| space.outputs().next())
+            .expect("No outputs?");
+        let new_target_size = space.output_geometry(output).unwrap().size;
+        surface.with_pending_state(|state| {
+            state.size = Some(new_target_size);
+        });
+        surface.send_pending_configure();
+    });
+}
 
 pub fn init_winit(
     event_loop: &mut EventLoop<CalloopData>,
@@ -53,15 +78,12 @@ pub fn init_winit(
 
         match event {
             WinitEvent::Resized { size, .. } => {
-                output.change_current_state(
-                    Some(Mode {
-                        size,
-                        refresh: 60_000,
-                    }),
-                    None,
-                    None,
-                    None,
-                );
+                let mode = Mode {
+                    size,
+                    refresh: 60_000,
+                };
+                output.change_current_state(Some(mode), None, None, None);
+                fix_positions(&state.space);
             }
             WinitEvent::Input(event) => state.process_input_event(event),
             WinitEvent::Redraw => {
