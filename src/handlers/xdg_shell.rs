@@ -14,7 +14,7 @@ use smithay::{
             Resource,
         },
     },
-    utils::{Rectangle, Serial},
+    utils::{Point, Rectangle, Serial},
     wayland::{
         compositor::with_states,
         shell::xdg::{

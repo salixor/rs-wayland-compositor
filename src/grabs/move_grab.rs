@@ -3,9 +3,9 @@ use smithay::{
     desktop::Window,
     input::pointer::{
         AxisFrame, ButtonEvent, GestureHoldBeginEvent, GestureHoldEndEvent, GesturePinchBeginEvent,
-        GesturePinchEndEvent, GesturePinchUpdateEvent, GestureSwipeBeginEvent, GestureSwipeEndEvent,
-        GestureSwipeUpdateEvent, GrabStartData as PointerGrabStartData, MotionEvent, PointerGrab,
-        PointerInnerHandle, RelativeMotionEvent,
+        GesturePinchEndEvent, GesturePinchUpdateEvent, GestureSwipeBeginEvent,
+        GestureSwipeEndEvent, GestureSwipeUpdateEvent, GrabStartData as PointerGrabStartData,
+        MotionEvent, PointerGrab, PointerInnerHandle, RelativeMotionEvent,
     },
     reexports::wayland_server::protocol::wl_surface::WlSurface,
     utils::{Logical, Point},
@@ -70,6 +70,33 @@ impl PointerGrab<Smallvil> for MoveSurfaceGrab {
         const BTN_LEFT: u32 = 0x110;
 
         if !handle.current_pressed().contains(&BTN_LEFT) {
+            let window_outputs = data.space.outputs_for_element(&self.window);
+            let output = window_outputs
+                .first()
+                .or_else(|| data.space.outputs().next())
+                .expect("No outputs?");
+            let output_size = output.current_mode().unwrap().size;
+
+            let current_location = handle.current_location();
+
+            let is_anchor_left_side = current_location.x <= 15.0;
+            let is_anchor_right_side = current_location.x >= (output_size.w - 15).into();
+
+            if is_anchor_left_side || is_anchor_right_side {
+                let new_location = Point::from((
+                    is_anchor_right_side.then(|| output_size.w / 2).unwrap_or(0),
+                    0,
+                ));
+
+                data.space
+                    .map_element(self.window.clone(), new_location, true);
+                let xdg = self.window.toplevel();
+                xdg.with_pending_state(|state| {
+                    state.size = Some((output_size.w / 2, output_size.h).into());
+                });
+                xdg.send_pending_configure();
+            }
+
             // No more buttons are pressed, release the grab.
             handle.unset_grab(data, event.serial, event.time, true);
         }
