@@ -104,11 +104,10 @@ impl XdgShellHandler for Smallvil {
                 let ratio =
                     (pointer_pos.x - win_geometry.loc.x as f64) / (win_geometry.size.w as f64);
 
-                initial_window_location = (
+                initial_window_location = Point::from((
                     (pointer_pos.x - ratio * target_size.w as f64) as i32,
                     (pointer_pos.y as i32),
-                )
-                    .into();
+                ));
             }
 
             let grab = MoveSurfaceGrab {
